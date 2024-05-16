@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -214,8 +215,8 @@ func startServer(t *testing.T, ctx context.Context, controlURL, hostname string)
 		Ephemeral:         true,
 		getCertForTesting: testCertRoot.getCert,
 	}
-	if !*verboseNodes {
-		s.Logf = logger.Discard
+	if *verboseNodes {
+		s.Logf = log.Printf
 	}
 	t.Cleanup(func() { s.Close() })
 
@@ -730,7 +731,7 @@ func TestCapturePcap(t *testing.T) {
 	const pcapHeaderSize = 24
 
 	// there is a lag before the io.Copy writes a packet to the pcap files
-	for i := 0; i < (timeLimit * 10); i++ {
+	for range timeLimit * 10 {
 		time.Sleep(100 * time.Millisecond)
 		if (fileSize(s1Pcap) > pcapHeaderSize) && (fileSize(s2Pcap) > pcapHeaderSize) {
 			break

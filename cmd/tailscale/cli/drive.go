@@ -5,7 +5,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -28,7 +27,7 @@ var driveCmd = &ffcli.Command{
 		driveRenameUsage,
 		driveUnshareUsage,
 		driveListUsage,
-	}, "\n  "),
+	}, "\n"),
 	LongHelp:  buildShareLongHelp(),
 	UsageFunc: usageFuncNoDefaultValues,
 	Subcommands: []*ffcli.Command{
@@ -36,40 +35,33 @@ var driveCmd = &ffcli.Command{
 			Name:       "share",
 			ShortUsage: driveShareUsage,
 			Exec:       runDriveShare,
-			ShortHelp:  "[ALPHA] create or modify a share",
-			UsageFunc:  usageFunc,
+			ShortHelp:  "[ALPHA] Create or modify a share",
 		},
 		{
 			Name:       "rename",
 			ShortUsage: driveRenameUsage,
-			ShortHelp:  "[ALPHA] rename a share",
+			ShortHelp:  "[ALPHA] Rename a share",
 			Exec:       runDriveRename,
-			UsageFunc:  usageFunc,
 		},
 		{
 			Name:       "unshare",
 			ShortUsage: driveUnshareUsage,
-			ShortHelp:  "[ALPHA] remove a share",
+			ShortHelp:  "[ALPHA] Remove a share",
 			Exec:       runDriveUnshare,
-			UsageFunc:  usageFunc,
 		},
 		{
 			Name:       "list",
 			ShortUsage: driveListUsage,
-			ShortHelp:  "[ALPHA] list current shares",
+			ShortHelp:  "[ALPHA] List current shares",
 			Exec:       runDriveList,
-			UsageFunc:  usageFunc,
 		},
-	},
-	Exec: func(context.Context, []string) error {
-		return errors.New("drive subcommand required; run 'tailscale drive -h' for details")
 	},
 }
 
 // runDriveShare is the entry point for the "tailscale drive share" command.
 func runDriveShare(ctx context.Context, args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: tailscale %v", driveShareUsage)
+		return fmt.Errorf("usage: %s", driveShareUsage)
 	}
 
 	name, path := args[0], args[1]
@@ -87,7 +79,7 @@ func runDriveShare(ctx context.Context, args []string) error {
 // runDriveUnshare is the entry point for the "tailscale drive unshare" command.
 func runDriveUnshare(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: tailscale %v", driveUnshareUsage)
+		return fmt.Errorf("usage: %s", driveUnshareUsage)
 	}
 	name := args[0]
 
@@ -101,7 +93,7 @@ func runDriveUnshare(ctx context.Context, args []string) error {
 // runDriveRename is the entry point for the "tailscale drive rename" command.
 func runDriveRename(ctx context.Context, args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: tailscale %v", driveRenameUsage)
+		return fmt.Errorf("usage: %s", driveRenameUsage)
 	}
 	oldName := args[0]
 	newName := args[1]
@@ -116,7 +108,7 @@ func runDriveRename(ctx context.Context, args []string) error {
 // runDriveList is the entry point for the "tailscale drive list" command.
 func runDriveList(ctx context.Context, args []string) error {
 	if len(args) != 0 {
-		return fmt.Errorf("usage: tailscale %v", driveListUsage)
+		return fmt.Errorf("usage: %s", driveListUsage)
 	}
 
 	shares, err := localClient.DriveShareList(ctx)
@@ -189,19 +181,9 @@ In order to access this share, other machines on the tailnet can connect to the 
 
   http://100.100.100.100:8080/mydomain.com/mylaptop/docs
 
-Permissions to access shares are controlled via ACLs. For example, to give yourself read/write access and give the group "home" read-only access to the above share, use the below ACL grants:
+Permissions to access shares are controlled via ACLs. For example, to give the group "home" read-only access to the above share, use the below ACL grant:
 
   "grants": [
-    {
-      "src": ["mylogin@domain.com"],
-      "dst": ["mylaptop's ip address"],
-      "app": {
-        "tailscale.com/cap/drive": [{
-          "shares": ["docs"],
-          "access": "rw"
-        }]
-      }
-    },
     {
       "src": ["group:home"],
       "dst": ["mylaptop"],
@@ -213,21 +195,21 @@ Permissions to access shares are controlled via ACLs. For example, to give yours
       }
     }]
 
-To categorically give yourself access to all your shares, you can use the below ACL grant:
+Whenever anyone in the group "home" connects to the share, they connect as if they are using your local machine user. They'll be able to read the same files as your user, and if they create files, those files will be owned by your user.%s
+
+On small tailnets, it may be convenient to categorically give all users full access to their own shares. That can be accomplished with the below grant.
 
   "grants": [
-    {
-      "src": ["autogroup:member"],
-      "dst": ["autogroup:self"],
-      "app": {
-        "tailscale.com/cap/drive": [{
-          "shares": ["*"],
-          "access": "rw"
-        }]
-      }
-    }]
-
-Whenever either you or anyone in the group "home" connects to the share, they connect as if they are using your local machine user. They'll be able to read the same files as your user and if they create files, those files will be owned by your user.%s
+	{
+	  "src": ["autogroup:member"],
+	  "dst": ["autogroup:self"],
+	  "app": {
+	    "tailscale.com/cap/drive": [{
+		  "shares": ["*"],
+		  "access": "rw"
+	    }]
+	  }
+	}]
 
 You can rename shares, for example you could rename the above share by running:
 

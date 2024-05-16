@@ -39,7 +39,7 @@ func TestLocalLogLines(t *testing.T) {
 
 	logid := func(hex byte) logid.PublicID {
 		var ret logid.PublicID
-		for i := 0; i < len(ret); i++ {
+		for i := range len(ret) {
 			ret[i] = hex
 		}
 		return ret
@@ -50,7 +50,7 @@ func TestLocalLogLines(t *testing.T) {
 	sys := new(tsd.System)
 	store := new(mem.Store)
 	sys.Set(store)
-	e, err := wgengine.NewFakeUserspaceEngine(logf, sys.Set)
+	e, err := wgengine.NewFakeUserspaceEngine(logf, sys.Set, sys.HealthTracker())
 	if err != nil {
 		t.Fatal(err)
 	}

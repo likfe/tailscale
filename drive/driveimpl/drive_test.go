@@ -10,10 +10,12 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -33,6 +35,7 @@ const (
 	share11 = `sha re$%11`
 	share12 = `_sha re$%12`
 	file111 = `fi le$%111.txt`
+	file112 = `file112.txt`
 )
 
 func init() {
@@ -81,11 +84,65 @@ func TestFileManipulation(t *testing.T) {
 	s.checkFileStatus(remote1, share11, file111)
 	s.checkFileContents(remote1, share11, file111)
 
-	s.addShare(remote1, share12, drive.PermissionReadOnly)
-	s.writeFile("writing file to read-only remote should fail", remote1, share12, file111, "hello world", false)
+	s.renameFile("renaming file across shares should fail", remote1, share11, file111, share12, file112, false)
 
+	s.renameFile("renaming file in same share should succeed", remote1, share11, file111, share11, file112, true)
+	s.checkFileContents(remote1, share11, file112)
+
+	s.addShare(remote1, share12, drive.PermissionReadOnly)
 	s.writeFile("writing file to non-existent remote should fail", "non-existent", share11, file111, "hello world", false)
 	s.writeFile("writing file to non-existent share should fail", remote1, "non-existent", file111, "hello world", false)
+}
+
+func TestPermissions(t *testing.T) {
+	s := newSystem(t)
+
+	s.addRemote(remote1)
+	s.addShare(remote1, share12, drive.PermissionReadOnly)
+
+	s.writeFile("writing file to read-only remote should fail", remote1, share12, file111, "hello world", false)
+	if err := s.client.Mkdir(path.Join(remote1, share12), 0644); err == nil {
+		t.Error("making directory on read-only remote should fail")
+	}
+
+	// Now, write file directly to file system so that we can test permissions
+	// on other operations.
+	s.write(remote1, share12, file111, "hello world")
+	if err := s.client.Remove(pathTo(remote1, share12, file111)); err == nil {
+		t.Error("deleting file from read-only remote should fail")
+	}
+	if err := s.client.Rename(pathTo(remote1, share12, file111), pathTo(remote1, share12, file112), true); err == nil {
+		t.Error("moving file on read-only remote should fail")
+	}
+}
+
+// TestSecretTokenAuth verifies that the fileserver running at localhost cannot
+// be accessed directly without the correct secret token. This matters because
+// if a victim can be induced to visit the localhost URL and access a malicious
+// file on their own share, it could allow a Mark-of-the-Web bypass attack.
+func TestSecretTokenAuth(t *testing.T) {
+	s := newSystem(t)
+
+	fileserverAddr := s.addRemote(remote1)
+	s.addShare(remote1, share11, drive.PermissionReadWrite)
+	s.writeFile("writing file to read/write remote should succeed", remote1, share11, file111, "hello world", true)
+
+	client := &http.Client{
+		Transport: &http.Transport{DisableKeepAlives: true},
+	}
+	addr := strings.Split(fileserverAddr, "|")[1]
+	wrongSecret, err := generateSecretToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := fmt.Sprintf("http://%s/%s/%s", addr, wrongSecret, url.PathEscape(file111))
+	resp, err := client.Get(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected %d for incorrect secret token, but got %d", http.StatusForbidden, resp.StatusCode)
+	}
 }
 
 type local struct {
@@ -127,7 +184,7 @@ func newSystem(t *testing.T) *system {
 	// Make sure we don't leak goroutines
 	tstest.ResourceCheck(t)
 
-	fs := NewFileSystemForLocal(log.Printf)
+	fs := newFileSystemForLocal(log.Printf, nil)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to Listen: %s", err)
@@ -156,7 +213,7 @@ func newSystem(t *testing.T) *system {
 	return s
 }
 
-func (s *system) addRemote(name string) {
+func (s *system) addRemote(name string) string {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		s.t.Fatalf("failed to Listen: %s", err)
@@ -195,6 +252,8 @@ func (s *system) addRemote(name string) {
 			DisableKeepAlives:     true,
 			ResponseHeaderTimeout: 5 * time.Second,
 		})
+
+	return fileServer.Addr()
 }
 
 func (s *system) addShare(remoteName, shareName string, permission drive.Permission) {
@@ -241,7 +300,18 @@ func (s *system) writeFile(label, remoteName, shareName, name, contents string, 
 	if expectSuccess && err != nil {
 		s.t.Fatalf("%v: expected success writing file %q, but got error %v", label, path, err)
 	} else if !expectSuccess && err == nil {
-		s.t.Fatalf("%v: expected error writing file %q", label, path)
+		s.t.Fatalf("%v: expected error writing file %q, but got no error", label, path)
+	}
+}
+
+func (s *system) renameFile(label, remoteName, fromShare, fromFile, toShare, toFile string, expectSuccess bool) {
+	fromPath := pathTo(remoteName, fromShare, fromFile)
+	toPath := pathTo(remoteName, toShare, toFile)
+	err := s.client.Rename(fromPath, toPath, true)
+	if expectSuccess && err != nil {
+		s.t.Fatalf("%v: expected success moving file %q to %q, but got error %v", label, fromPath, toPath, err)
+	} else if !expectSuccess && err == nil {
+		s.t.Fatalf("%v: expected error moving file %q to %q, but got no error", label, fromPath, toPath)
 	}
 }
 
@@ -306,6 +376,14 @@ func (s *system) read(remoteName, shareName, name string) string {
 	}
 
 	return string(b)
+}
+
+func (s *system) write(remoteName, shareName, name, contents string) {
+	filename := filepath.Join(s.remotes[remoteName].shares[shareName], name)
+	err := os.WriteFile(filename, []byte(contents), 0644)
+	if err != nil {
+		s.t.Fatalf("failed to WriteFile: %s", err)
+	}
 }
 
 func (s *system) readViaWebDAV(remoteName, shareName, name string) string {

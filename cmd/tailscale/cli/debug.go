@@ -48,7 +48,8 @@ var debugCmd = &ffcli.Command{
 	Name:       "debug",
 	Exec:       runDebug,
 	ShortUsage: "tailscale debug <debug-flags | subcommand>",
-	LongHelp:   `HIDDEN: "tailscale debug" contains misc debug facilities; it is not a stable interface.`,
+	ShortHelp:  "Debug commands",
+	LongHelp:   hidden + `"tailscale debug" contains misc debug facilities; it is not a stable interface.`,
 	FlagSet: (func() *flag.FlagSet {
 		fs := newFlagSet("debug")
 		fs.StringVar(&debugArgs.file, "file", "", "get, delete:NAME, or NAME")
@@ -227,8 +228,8 @@ var debugCmd = &ffcli.Command{
 		},
 		{
 			Name: "via",
-			ShortUsage: "tailscale via <site-id> <v4-cidr>\n" +
-				"tailscale via <v6-route>",
+			ShortUsage: "tailscale debug via <site-id> <v4-cidr>\n" +
+				"tailscale debug via <v6-route>",
 			Exec:      runVia,
 			ShortHelp: "Convert between site-specific IPv4 CIDRs and IPv6 'via' routes",
 		},
@@ -346,7 +347,7 @@ func outName(dst string) string {
 
 func runDebug(ctx context.Context, args []string) error {
 	if len(args) > 0 {
-		return errors.New("unknown arguments")
+		return fmt.Errorf("tailscale debug: unknown subcommand: %s", args[0])
 	}
 	var usedFlag bool
 	if out := debugArgs.cpuFile; out != "" {
@@ -401,7 +402,7 @@ func runDebug(ctx context.Context, args []string) error {
 		// to subcommands.
 		return nil
 	}
-	return errors.New("see 'tailscale debug --help")
+	return errors.New("tailscale debug: subcommand or flag required")
 }
 
 func runLocalCreds(ctx context.Context, args []string) error {
@@ -842,7 +843,7 @@ var debugComponentLogsArgs struct {
 
 func runDebugComponentLogs(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: debug component-logs [" + strings.Join(ipn.DebuggableComponents, "|") + "]")
+		return errors.New("usage: tailscale debug component-logs [" + strings.Join(ipn.DebuggableComponents, "|") + "]")
 	}
 	component := args[0]
 	dur := debugComponentLogsArgs.forDur
@@ -865,7 +866,7 @@ var devStoreSetArgs struct {
 
 func runDevStoreSet(ctx context.Context, args []string) error {
 	if len(args) != 2 {
-		return errors.New("usage: dev-store-set --danger <key> <value>")
+		return errors.New("usage: tailscale debug dev-store-set --danger <key> <value>")
 	}
 	if !devStoreSetArgs.danger {
 		return errors.New("this command is dangerous; use --danger to proceed")
@@ -883,7 +884,7 @@ func runDevStoreSet(ctx context.Context, args []string) error {
 
 func runDebugDERP(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: debug derp <region>")
+		return errors.New("usage: tailscale debug derp <region>")
 	}
 	st, err := localClient.DebugDERPRegion(ctx, args[0])
 	if err != nil {

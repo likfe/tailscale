@@ -16,7 +16,6 @@ import (
 
 	qt "github.com/frankban/quicktest"
 	"github.com/google/go-cmp/cmp"
-	"github.com/peterbourgon/ff/v3/ffcli"
 	"tailscale.com/envknob"
 	"tailscale.com/health/healthmsg"
 	"tailscale.com/ipn"
@@ -34,26 +33,104 @@ func TestPanicIfAnyEnvCheckedInInit(t *testing.T) {
 	envknob.PanicIfAnyEnvCheckedInInit()
 }
 
-func TestShortUsage_FullCmd(t *testing.T) {
+func TestShortUsage(t *testing.T) {
 	t.Setenv("TAILSCALE_USE_WIP_CODE", "1")
 	if !envknob.UseWIPCode() {
 		t.Fatal("expected envknob.UseWIPCode() to be true")
 	}
 
-	// Some commands have more than one path from the root, so investigate all
-	// paths before we report errors.
-	ok := make(map[*ffcli.Command]bool)
-	root := newRootCmd()
-	walkCommands(root, func(c *ffcli.Command) {
-		if !ok[c] {
-			ok[c] = strings.HasPrefix(c.ShortUsage, "tailscale ") && (c.Name == "tailscale" || strings.Contains(c.ShortUsage, " "+c.Name+" ") || strings.HasSuffix(c.ShortUsage, " "+c.Name))
+	walkCommands(newRootCmd(), func(w cmdWalk) bool {
+		c, parents := w.Command, w.parents
+
+		// Words that we expect to be in the usage.
+		words := make([]string, len(parents)+1)
+		for i, parent := range parents {
+			words[i] = parent.Name
 		}
-	})
-	walkCommands(root, func(c *ffcli.Command) {
-		if !ok[c] {
-			t.Errorf("subcommand %s should show full usage ('tailscale ... %s ...') in ShortUsage (%q)", c.Name, c.Name, c.ShortUsage)
+		words[len(parents)] = c.Name
+
+		// Check the ShortHelp starts with a capital letter.
+		if prefix, help := trimPrefixes(c.ShortHelp, "HIDDEN: ", "[ALPHA] ", "[BETA] "); help != "" {
+			if 'a' <= help[0] && help[0] <= 'z' {
+				if len(help) > 20 {
+					help = help[:20] + "…"
+				}
+				caphelp := string(help[0]-'a'+'A') + help[1:]
+				t.Errorf("command: %s: ShortHelp %q should start with a capital letter %q", strings.Join(words, " "), prefix+help, prefix+caphelp)
+			}
 		}
+
+		// Check all words appear in the usage.
+		usage := c.ShortUsage
+		for _, word := range words {
+			var ok bool
+			usage, ok = cutWord(usage, word)
+			if !ok {
+				full := strings.Join(words, " ")
+				t.Errorf("command: %s: usage %q should contain the full path %q", full, c.ShortUsage, full)
+				return true
+			}
+		}
+		return true
 	})
+}
+
+func trimPrefixes(full string, prefixes ...string) (trimmed, remaining string) {
+	s := full
+start:
+	for _, p := range prefixes {
+		var ok bool
+		s, ok = strings.CutPrefix(s, p)
+		if ok {
+			goto start
+		}
+	}
+	return full[:len(full)-len(s)], s
+}
+
+// cutWord("tailscale debug scale 123", "scale") returns (" 123", true).
+func cutWord(s, w string) (after string, ok bool) {
+	var p string
+	for {
+		p, s, ok = strings.Cut(s, w)
+		if !ok {
+			return "", false
+		}
+		if p != "" && isWordChar(p[len(p)-1]) {
+			continue
+		}
+		if s != "" && isWordChar(s[0]) {
+			continue
+		}
+		return s, true
+	}
+}
+
+func isWordChar(r byte) bool {
+	return r == '_' ||
+		('0' <= r && r <= '9') ||
+		('A' <= r && r <= 'Z') ||
+		('a' <= r && r <= 'z')
+}
+
+func TestCutWord(t *testing.T) {
+	tests := []struct {
+		in   string
+		word string
+		out  string
+		ok   bool
+	}{
+		{"tailscale debug", "debug", "", true},
+		{"tailscale debug", "bug", "", false},
+		{"tailscale debug", "tail", "", false},
+		{"tailscale debug scaley scale 123", "scale", " 123", true},
+	}
+	for _, test := range tests {
+		out, ok := cutWord(test.in, test.word)
+		if out != test.out || ok != test.ok {
+			t.Errorf("cutWord(%q, %q) = (%q, %t), wanted (%q, %t)", test.in, test.word, out, ok, test.out, test.ok)
+		}
+	}
 }
 
 // geese is a collection of gooses. It need not be complete.
@@ -578,12 +655,13 @@ func TestPrefsFromUpArgs(t *testing.T) {
 			goos: "linux",
 			args: upArgsFromOSArgs("linux"),
 			want: &ipn.Prefs{
-				ControlURL:       ipn.DefaultControlURL,
-				WantRunning:      true,
-				NoSNAT:           false,
-				NetfilterMode:    preftype.NetfilterOn,
-				CorpDNS:          true,
-				AllowSingleHosts: true,
+				ControlURL:          ipn.DefaultControlURL,
+				WantRunning:         true,
+				NoSNAT:              false,
+				NoStatefulFiltering: "false",
+				NetfilterMode:       preftype.NetfilterOn,
+				CorpDNS:             true,
+				AllowSingleHosts:    true,
 				AutoUpdate: ipn.AutoUpdatePrefs{
 					Check: true,
 				},
@@ -594,12 +672,14 @@ func TestPrefsFromUpArgs(t *testing.T) {
 			goos: "windows",
 			args: upArgsFromOSArgs("windows"),
 			want: &ipn.Prefs{
-				ControlURL:       ipn.DefaultControlURL,
-				WantRunning:      true,
-				CorpDNS:          true,
-				AllowSingleHosts: true,
-				RouteAll:         true,
-				NetfilterMode:    preftype.NetfilterOn,
+				ControlURL:          ipn.DefaultControlURL,
+				WantRunning:         true,
+				CorpDNS:             true,
+				AllowSingleHosts:    true,
+				RouteAll:            true,
+				NoSNAT:              false,
+				NoStatefulFiltering: "false",
+				NetfilterMode:       preftype.NetfilterOn,
 				AutoUpdate: ipn.AutoUpdatePrefs{
 					Check: true,
 				},
@@ -617,7 +697,8 @@ func TestPrefsFromUpArgs(t *testing.T) {
 					netip.MustParsePrefix("0.0.0.0/0"),
 					netip.MustParsePrefix("::/0"),
 				},
-				NetfilterMode: preftype.NetfilterOn,
+				NoStatefulFiltering: "false",
+				NetfilterMode:       preftype.NetfilterOn,
 				AutoUpdate: ipn.AutoUpdatePrefs{
 					Check: true,
 				},
@@ -704,9 +785,10 @@ func TestPrefsFromUpArgs(t *testing.T) {
 			},
 			wantWarn: "netfilter=nodivert; add iptables calls to ts-* chains manually.",
 			want: &ipn.Prefs{
-				WantRunning:   true,
-				NetfilterMode: preftype.NetfilterNoDivert,
-				NoSNAT:        true,
+				WantRunning:         true,
+				NetfilterMode:       preftype.NetfilterNoDivert,
+				NoSNAT:              true,
+				NoStatefulFiltering: "true",
 				AutoUpdate: ipn.AutoUpdatePrefs{
 					Check: true,
 				},
@@ -720,9 +802,10 @@ func TestPrefsFromUpArgs(t *testing.T) {
 			},
 			wantWarn: "netfilter=off; configure iptables yourself.",
 			want: &ipn.Prefs{
-				WantRunning:   true,
-				NetfilterMode: preftype.NetfilterOff,
-				NoSNAT:        true,
+				WantRunning:         true,
+				NetfilterMode:       preftype.NetfilterOff,
+				NoSNAT:              true,
+				NoStatefulFiltering: "true",
 				AutoUpdate: ipn.AutoUpdatePrefs{
 					Check: true,
 				},
@@ -736,8 +819,9 @@ func TestPrefsFromUpArgs(t *testing.T) {
 				netfilterMode:   "off",
 			},
 			want: &ipn.Prefs{
-				WantRunning: true,
-				NoSNAT:      true,
+				WantRunning:         true,
+				NoSNAT:              true,
+				NoStatefulFiltering: "true",
 				AdvertiseRoutes: []netip.Prefix{
 					netip.MustParsePrefix("fd7a:115c:a1e0:b1a::bb:10.0.0.0/112"),
 				},
@@ -754,8 +838,9 @@ func TestPrefsFromUpArgs(t *testing.T) {
 				netfilterMode:   "off",
 			},
 			want: &ipn.Prefs{
-				WantRunning: true,
-				NoSNAT:      true,
+				WantRunning:         true,
+				NoSNAT:              true,
+				NoStatefulFiltering: "true",
 				AdvertiseRoutes: []netip.Prefix{
 					netip.MustParsePrefix("fd7a:115c:a1e0:b1a::aabb:10.0.0.0/112"),
 				},
@@ -831,7 +916,7 @@ func TestPrefFlagMapping(t *testing.T) {
 	}
 
 	prefType := reflect.TypeFor[ipn.Prefs]()
-	for i := 0; i < prefType.NumField(); i++ {
+	for i := range prefType.NumField() {
 		prefName := prefType.Field(i).Name
 		if prefHasFlag[prefName] {
 			continue
@@ -954,6 +1039,7 @@ func TestUpdatePrefs(t *testing.T) {
 				HostnameSet:               true,
 				NetfilterModeSet:          true,
 				NoSNATSet:                 true,
+				NoStatefulFilteringSet:    true,
 				OperatorUserSet:           true,
 				RouteAllSet:               true,
 				RunSSHSet:                 true,

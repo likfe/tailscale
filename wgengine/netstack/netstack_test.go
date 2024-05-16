@@ -44,9 +44,10 @@ func TestInjectInboundLeak(t *testing.T) {
 	}
 	sys := new(tsd.System)
 	eng, err := wgengine.NewUserspaceEngine(logf, wgengine.Config{
-		Tun:          tunDev,
-		Dialer:       dialer,
-		SetSubsystem: sys.Set,
+		Tun:           tunDev,
+		Dialer:        dialer,
+		SetSubsystem:  sys.Set,
+		HealthTracker: sys.HealthTracker(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +76,7 @@ func TestInjectInboundLeak(t *testing.T) {
 	pkt := &packet.Parsed{}
 	const N = 10_000
 	ms0 := getMemStats()
-	for i := 0; i < N; i++ {
+	for range N {
 		outcome := ns.injectInbound(pkt, tunWrap)
 		if outcome != filter.DropSilently {
 			t.Fatalf("got outcome %v; want DropSilently", outcome)
@@ -100,9 +101,10 @@ func makeNetstack(t *testing.T, config func(*Impl)) *Impl {
 	dialer := new(tsdial.Dialer)
 	logf := tstest.WhileTestRunningLogger(t)
 	eng, err := wgengine.NewUserspaceEngine(logf, wgengine.Config{
-		Tun:          tunDev,
-		Dialer:       dialer,
-		SetSubsystem: sys.Set,
+		Tun:           tunDev,
+		Dialer:        dialer,
+		SetSubsystem:  sys.Set,
+		HealthTracker: sys.HealthTracker(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -292,7 +294,7 @@ func TestShouldProcessInbound(t *testing.T) {
 					netip.MustParsePrefix("fd7a:115c:a1e0:b1a:0:7:a01:100/120"),
 				}
 				i.lb.Start(ipn.Options{
-					LegacyMigrationPrefs: prefs,
+					UpdatePrefs: prefs,
 				})
 				i.atomicIsLocalIPFunc.Store(looksLikeATailscaleSelfAddress)
 			},
@@ -325,7 +327,7 @@ func TestShouldProcessInbound(t *testing.T) {
 					netip.MustParsePrefix("fd7a:115c:a1e0:b1a:0:7:a01:200/120"),
 				}
 				i.lb.Start(ipn.Options{
-					LegacyMigrationPrefs: prefs,
+					UpdatePrefs: prefs,
 				})
 			},
 			want: false,
@@ -343,7 +345,7 @@ func TestShouldProcessInbound(t *testing.T) {
 				prefs := ipn.NewPrefs()
 				prefs.RunSSH = true
 				i.lb.Start(ipn.Options{
-					LegacyMigrationPrefs: prefs,
+					UpdatePrefs: prefs,
 				})
 				i.atomicIsLocalIPFunc.Store(func(addr netip.Addr) bool {
 					return addr.String() == "100.101.102.104" // Dst, above
@@ -365,7 +367,7 @@ func TestShouldProcessInbound(t *testing.T) {
 				prefs := ipn.NewPrefs()
 				prefs.RunSSH = false // default, but to be explicit
 				i.lb.Start(ipn.Options{
-					LegacyMigrationPrefs: prefs,
+					UpdatePrefs: prefs,
 				})
 				i.atomicIsLocalIPFunc.Store(func(addr netip.Addr) bool {
 					return addr.String() == "100.101.102.104" // Dst, above
@@ -430,7 +432,7 @@ func TestShouldProcessInbound(t *testing.T) {
 					netip.MustParsePrefix("10.0.0.1/24"),
 				}
 				i.lb.Start(ipn.Options{
-					LegacyMigrationPrefs: prefs,
+					UpdatePrefs: prefs,
 				})
 
 				// Set the PeerAPI port to the Dst port above.
@@ -549,7 +551,7 @@ func TestTCPForwardLimits(t *testing.T) {
 		netip.MustParsePrefix("192.0.2.0/24"),
 	}
 	impl.lb.Start(ipn.Options{
-		LegacyMigrationPrefs: prefs,
+		UpdatePrefs: prefs,
 	})
 	impl.atomicIsLocalIPFunc.Store(looksLikeATailscaleSelfAddress)
 
@@ -629,7 +631,7 @@ func TestTCPForwardLimits_PerClient(t *testing.T) {
 		netip.MustParsePrefix("192.0.2.0/24"),
 	}
 	impl.lb.Start(ipn.Options{
-		LegacyMigrationPrefs: prefs,
+		UpdatePrefs: prefs,
 	})
 	impl.atomicIsLocalIPFunc.Store(looksLikeATailscaleSelfAddress)
 
@@ -703,4 +705,95 @@ func TestTCPForwardLimits_PerClient(t *testing.T) {
 	if v := metricPerClientForwardLimit.Value(); v != 1 {
 		t.Errorf("got clientmetric limit metric=%d, want 1", v)
 	}
+}
+
+// TestHandleLocalPackets tests the handleLocalPackets function, ensuring that
+// we are properly deciding to handle packets that are destined for "local"
+// IPs–addresses that are either for this node, or that it is responsible for.
+//
+// See, e.g. #11304
+func TestHandleLocalPackets(t *testing.T) {
+	var (
+		selfIP4 = netip.MustParseAddr("100.64.1.2")
+		selfIP6 = netip.MustParseAddr("fd7a:115c:a1e0::123")
+	)
+
+	impl := makeNetstack(t, func(impl *Impl) {
+		impl.ProcessSubnets = false
+		impl.ProcessLocalIPs = false
+		impl.atomicIsLocalIPFunc.Store(func(addr netip.Addr) bool {
+			return addr == selfIP4 || addr == selfIP6
+		})
+	})
+
+	prefs := ipn.NewPrefs()
+	prefs.AdvertiseRoutes = []netip.Prefix{
+		// $ tailscale debug via 7 10.1.1.0/24
+		// fd7a:115c:a1e0:b1a:0:7:a01:100/120
+		netip.MustParsePrefix("fd7a:115c:a1e0:b1a:0:7:a01:100/120"),
+	}
+	_, err := impl.lb.EditPrefs(&ipn.MaskedPrefs{
+		Prefs:              *prefs,
+		AdvertiseRoutesSet: true,
+	})
+	if err != nil {
+		t.Fatalf("EditPrefs: %v", err)
+	}
+
+	t.Run("ShouldHandleServiceIP", func(t *testing.T) {
+		pkt := &packet.Parsed{
+			IPVersion: 4,
+			IPProto:   ipproto.TCP,
+			Src:       netip.MustParseAddrPort("127.0.0.1:9999"),
+			Dst:       netip.MustParseAddrPort("100.100.100.100:53"),
+			TCPFlags:  packet.TCPSyn,
+		}
+		resp := impl.handleLocalPackets(pkt, impl.tundev)
+		if resp != filter.DropSilently {
+			t.Errorf("got filter outcome %v, want filter.DropSilently", resp)
+		}
+	})
+	t.Run("ShouldHandle4via6", func(t *testing.T) {
+		pkt := &packet.Parsed{
+			IPVersion: 6,
+			IPProto:   ipproto.TCP,
+			Src:       netip.MustParseAddrPort("[::1]:1234"),
+
+			// This is an IP in the above 4via6 subnet that this node handles.
+			//    $ tailscale debug via 7 10.1.1.9/24
+			//    fd7a:115c:a1e0:b1a:0:7:a01:109/120
+			Dst:      netip.MustParseAddrPort("[fd7a:115c:a1e0:b1a:0:7:a01:109]:5678"),
+			TCPFlags: packet.TCPSyn,
+		}
+		resp := impl.handleLocalPackets(pkt, impl.tundev)
+
+		// DropSilently is the outcome we expected, since we actually
+		// handled this packet by injecting it into netstack, which
+		// will handle creating the TCP forwarder. We drop it so we
+		// don't process the packet outside of netstack.
+		if resp != filter.DropSilently {
+			t.Errorf("got filter outcome %v, want filter.DropSilently", resp)
+		}
+	})
+	t.Run("OtherNonHandled", func(t *testing.T) {
+		pkt := &packet.Parsed{
+			IPVersion: 6,
+			IPProto:   ipproto.TCP,
+			Src:       netip.MustParseAddrPort("[::1]:1234"),
+
+			// This IP is *not* in the above 4via6 route
+			//    $ tailscale debug via 99 10.1.1.9/24
+			//    fd7a:115c:a1e0:b1a:0:63:a01:109/120
+			Dst:      netip.MustParseAddrPort("[fd7a:115c:a1e0:b1a:0:63:a01:109]:5678"),
+			TCPFlags: packet.TCPSyn,
+		}
+		resp := impl.handleLocalPackets(pkt, impl.tundev)
+
+		// Accept means that handleLocalPackets does not handle this
+		// packet, we "accept" it to continue further processing,
+		// instead of dropping because it was already handled.
+		if resp != filter.Accept {
+			t.Errorf("got filter outcome %v, want filter.Accept", resp)
+		}
+	})
 }

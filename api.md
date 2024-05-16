@@ -38,7 +38,7 @@ In addition to the status code, errors may include additional information in the
 
 ```jsonc
 {
-  "message": "additional error information",
+  "message": "additional error information"
 }
 ```
 
@@ -64,6 +64,13 @@ The Tailscale API does not currently support pagination. All results are returne
   - Update device key: [`POST /api/v2/device/{deviceID}/key`](#update-device-key)
 - **IP Address**
   - Set device IPv4 address: [`POST /api/v2/device/{deviceID}/ip`](#set-device-ipv4-address)
+- **Device posture attributes**
+  - Get device posture attributes: [`GET /api/v2/device/{deviceID}/attributes`](#get-device-posture-attributes)
+  - Set custom device posture attributes: [`POST /api/v2/device/{deviceID}/attributes/{attributeKey}`](#set-device-posture-attributes)
+  - Delete custom device posture attributes: [`DELETE /api/v2/device/{deviceID}/attributes/{attributeKey}`](#delete-custom-device-posture-attributes)
+- [**Device invites**](#invites-to-a-device)
+  - List device invites: [`GET /api/v2/device/{deviceID}/device-invites`](#list-device-invites)
+  - Create device invites: [`POST /api/v2/device/{deviceID}/device-invites`](#create-device-invites)
 
 **[Tailnet](#tailnet)**
 
@@ -89,6 +96,26 @@ The Tailscale API does not currently support pagination. All results are returne
   - **Search paths**
     - Get search paths: [`GET /api/v2/tailnet/{tailnet}/dns/searchpaths`](#get-search-paths)
     - Set search paths: [`POST /api/v2/tailnet/{tailnet}/dns/searchpaths`](#set-search-paths)
+  - **Split DNS**
+    - Get split DNS: [`GET /api/v2/tailnet/{tailnet}/dns/split-dns`](#get-split-dns)
+    - Update split DNS: [`PATCH /api/v2/tailnet/{tailnet}/dns/split-dns`](#update-split-dns)
+    - Set split DNS: [`PUT /api/v2/tailnet/{tailnet}/dns/split-dns`](#set-split-dns)
+- [**User invites**](#tailnet-user-invites)
+  - List user invites: [`GET /api/v2/tailnet/{tailnet}/user-invites`](#list-user-invites)
+  - Create user invites: [`POST /api/v2/tailnet/{tailnet}/user-invites`](#create-user-invites)
+
+**[User invites](#user-invites)**
+
+- Get user invite: [`GET /api/v2/user-invites/{userInviteId}`](#get-user-invite)
+- Delete user invite: [`DELETE /api/v2/user-invites/{userInviteId}`](#delete-user-invite)
+- Resend user invite (by email): [`POST /api/v2/user-invites/{userInviteId}/resend`](#resend-user-invite)
+
+**[Device invites](#device-invites)**
+
+- Get device invite: [`GET /api/v2/device-invites/{deviceInviteId}`](#get-device-invite)
+- Delete device invite: [`DELETE /api/v2/device-invites/{deviceInviteId}`](#delete-device-invite)
+- Resend device invite (by email): [`POST /api/v2/device-invites/{deviceInviteId}/resend`](#resend-device-invite)
+- Accept device invite [`POST /api/v2/device-invites/-/accept`](#accept-device-invite)
 
 # Device
 
@@ -210,12 +237,12 @@ You can also [list all devices in the tailnet](#list-tailnet-devices) to get the
     // server for incoming traffic.
     "latency": {
       "Dallas": {
-        "latencyMs": 60.463043,
+        "latencyMs": 60.463043
       },
       "New York City": {
         "preferred": true,
-        "latencyMs": 31.323811,
-      },
+        "latencyMs": 31.323811
+      }
     },
 
     // clientSupports (JSON object) identifies features supported by the client.
@@ -244,8 +271,8 @@ You can also [list all devices in the tailnet](#list-tailnet-devices) to get the
 
       // upnp (boolean) is 'true' if UPnP port-mapping service exists
       // on your router.
-      "upnp": false,
-    },
+      "upnp": false
+    }
   },
 
   // tags (array of strings) let you assign an identity to a device that
@@ -273,8 +300,8 @@ You can also [list all devices in the tailnet](#list-tailnet-devices) to get the
   // will contain {"disabled": true}.
   // Learn more about posture identity at https://tailscale.com/kb/1326/device-identity
   "postureIdentity": {
-    "serialNumbers": ["CP74LFQJXM"],
-  },
+    "serialNumbers": ["CP74LFQJXM"]
+  }
 }
 ```
 
@@ -424,7 +451,8 @@ The ID of the device.
 
 ```sh
 curl -X POST 'https://api.tailscale.com/api/v2/device/12345/expire' \
-  -u "tskey-api-xxxxx:"
+  -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json"
 ```
 
 ### Response
@@ -468,7 +496,7 @@ Returns the enabled and advertised subnet routes for a device.
 ```jsonc
 {
   "advertisedRoutes": ["10.0.0.0/16", "192.168.1.0/24"],
-  "enabledRoutes": [],
+  "enabledRoutes": []
 }
 ```
 
@@ -495,7 +523,7 @@ The new list of enabled subnet routes.
 
 ```jsonc
 {
-  "routes": ["10.0.0.0/16", "192.168.1.0/24"],
+  "routes": ["10.0.0.0/16", "192.168.1.0/24"]
 }
 ```
 
@@ -504,6 +532,7 @@ The new list of enabled subnet routes.
 ```sh
 curl "https://api.tailscale.com/api/v2/device/11055/routes" \
 -u "tskey-api-xxxxx:" \
+-H "Content-Type: application/json" \
 --data-binary '{"routes": ["10.0.0.0/16", "192.168.1.0/24"]}'
 ```
 
@@ -514,7 +543,7 @@ Returns the enabled and advertised subnet routes for a device.
 ```jsonc
 {
   "advertisedRoutes": ["10.0.0.0/16", "192.168.1.0/24"],
-  "enabledRoutes": ["10.0.0.0/16", "192.168.1.0/24"],
+  "enabledRoutes": ["10.0.0.0/16", "192.168.1.0/24"]
 }
 ```
 
@@ -543,7 +572,7 @@ Specify whether the device is authorized. False to deauthorize an authorized dev
 
 ```jsonc
 {
-  "authorized": true,
+  "authorized": true
 }
 ```
 
@@ -552,6 +581,7 @@ Specify whether the device is authorized. False to deauthorize an authorized dev
 ```sh
 curl "https://api.tailscale.com/api/v2/device/11055/authorized" \
 -u "tskey-api-xxxxx:" \
+-H "Content-Type: application/json" \
 --data-binary '{"authorized": true}'
 ```
 
@@ -592,7 +622,7 @@ The new list of tags for the device.
 
 ```jsonc
 {
-  "tags": ["tag:foo", "tag:bar"],
+  "tags": ["tag:foo", "tag:bar"]
 }
 ```
 
@@ -601,6 +631,7 @@ The new list of tags for the device.
 ```sh
 curl "https://api.tailscale.com/api/v2/device/11055/tags" \
 -u "tskey-api-xxxxx:" \
+-H "Content-Type: application/json" \
 --data-binary '{"tags": ["tag:foo", "tag:bar"]}'
 ```
 
@@ -612,7 +643,7 @@ If the tags supplied in the `POST` call do not exist in the tailnet policy file,
 
 ```jsonc
 {
-  "message": "requested tags [tag:madeup tag:wrongexample] are invalid or not permitted",
+  "message": "requested tags [tag:madeup tag:wrongexample] are invalid or not permitted"
 }
 ```
 
@@ -644,7 +675,7 @@ You can then call this method again with `"keyExpiryDisabled": false` to re-enab
 
 ```jsonc
 {
-  "keyExpiryDisabled": true,
+  "keyExpiryDisabled": true
 }
 ```
 
@@ -663,6 +694,7 @@ This returns a 2xx code on success, with an empty JSON object in the response bo
 ```sh
 curl "https://api.tailscale.com/api/v2/device/11055/key" \
 -u "tskey-api-xxxxx:" \
+-H "Content-Type: application/json" \
 --data-binary '{"keyExpiryDisabled": true}'
 ```
 
@@ -693,7 +725,7 @@ This endpoint can be used to replace the existing IPv4 address with a specific v
 
 ```jsonc
 {
-  "ipv4": "100.80.0.1",
+  "ipv4": "100.80.0.1"
 }
 ```
 
@@ -708,12 +740,252 @@ This returns a 2xx code on success, with an empty JSON object in the response bo
 ```sh
 curl "https://api.tailscale.com/api/v2/device/11055/ip" \
 -u "tskey-api-xxxxx:" \
+-H "Content-Type: application/json" \
 --data-binary '{"ipv4": "100.80.0.1"}'
 ```
 
 ### Response
 
 The response is 2xx on success. The response body is currently an empty JSON object.
+
+## Get device posture attributes
+
+The posture attributes API endpoints can be called with OAuth access tokens with
+an `acl` or `devices` [scope](https://tailscale.com/kb/1215/oauth-clients#scopes), or personal access belonging to
+[user roles](https://tailscale.com/kb/1138/user-roles) Owners, Admins, Network Admins, or IT Admins.
+
+```
+GET /api/v2/device/{deviceID}/attributes
+```
+
+Retrieve all posture attributes for the specified device. This returns a JSON object of all the key-value pairs of posture attributes for the device.
+
+### Parameters
+
+#### `deviceID` (required in URL path)
+
+The ID of the device to fetch posture attributes for.
+
+### Request example
+
+```
+curl "https://api.tailscale.com/api/v2/device/11055/attributes" \
+-u "tskey-api-xxxxx:"
+```
+
+### Response
+
+The response is 200 on success. The response body is a JSON object containing all the posture attributes assigned to the node. Attribute values can be strings, numbers or booleans.
+
+```json
+{
+  "attributes": {
+    "custom:myScore": 87,
+    "custom:diskEncryption": true,
+    "custom:myAttribute": "my_value",
+    "node:os": "linux",
+    "node:osVersion": "5.19.0-42-generic",
+    "node:tsReleaseTrack": "stable",
+    "node:tsVersion": "1.40.0",
+    "node:tsAutoUpdate": false
+  }
+}
+```
+
+## Set custom device posture attributes
+
+```
+POST /api/v2/device/{deviceID}/attributes/{attributeKey}
+```
+
+Create or update a custom posture attribute on the specified device. User-managed attributes must be in the `custom` namespace, which is indicated by prefixing the attribute key with `custom:`.
+
+Custom device posture attributes are available for the Personal and Enterprise plans.
+
+### Parameters
+
+#### `deviceID` (required in URL path)
+
+The ID of the device on which to set the custom posture attribute.
+
+#### `attributeKey` (required in URL path)
+
+The name of the posture attribute to set. This must be prefixed with `custom:`.
+
+Keys have a maximum length of 50 characters including the namespace, and can only contain letters, numbers, underscores, and colon.
+
+Keys are case-sensitive. Keys must be unique, but are checked for uniqueness in a case-insensitive manner. For example, `custom:MyAttribute` and `custom:myattribute` cannot both be set within a single tailnet.
+
+All values for a given key need to be of the same type, which is determined when the first value is written for a given key. For example, `custom:myattribute` cannot have a numeric value (`87`) for one node and a string value (`"78"`) for another node within the same tailnet.
+
+### Posture attribute `value` (required in POST body)
+
+```json
+{
+  "value": "foo"
+}
+```
+
+A value can be either a string, number or boolean.
+
+A string value can have a maximum length of 50 characters, and can only contain letters, numbers, underscores, and periods.
+
+A number value is an integer and must be a JSON safe number (up to 2^53 - 1).
+
+### Request example
+
+```
+curl "https://api.tailscale.com/api/v2/device/11055/attributes/custom:my_attribute" \
+-u "tskey-api-xxxxx:" \
+-H "Content-Type: application/json" \
+--data-binary '{"value": "my_value"}'
+```
+
+### Response
+
+The response is 2xx on success. The response body is currently an empty JSON object.
+
+## Delete custom device posture attributes
+
+```
+DELETE /api/v2/device/{deviceID}/attributes/{attributeKey}
+```
+
+Delete a posture attribute from the specified device. This is only applicable to user-managed posture attributes in the `custom` namespace, which is indicated by prefixing the attribute key with `custom:`.
+
+<PricingPlanNote feature="Custom device posture attributes" verb="are" plan="the Personal and Enterprise plans" />
+
+### Parameters
+
+#### `deviceID` (required in URL path)
+
+The ID of the device from which to delete the posture attribute.
+
+#### `attributeKey` (required in URL path)
+
+The name of the posture attribute to delete. This must be prefixed with `custom:`.
+
+Keys have a maximum length of 50 characters including the namespace, and can only contain letters, numbers, underscores, and a delimiting colon.
+
+### Request example
+
+```
+curl -X DELETE "https://api.tailscale.com/api/v2/device/11055/attributes/custom:my_attribute" \
+-u "tskey-api-xxxxx:"
+```
+
+### Response
+
+The response is 2xx on success. The response body is currently an empty JSON object.
+
+## Invites to a device
+
+The device sharing invite methods let you create and list [invites to share a device](https://tailscale.com/kb/1084/sharing).
+
+## List device invites
+
+```http
+GET /api/v2/device/{deviceID}/device-invites
+```
+
+List all share invites for a device.
+
+### Parameters
+
+#### `deviceID` (required in URL path)
+
+The ID of the device.
+
+### Request example
+
+```sh
+curl -X GET "https://api.tailscale.com/api/v2/device/11055/device-invites" \
+-u "tskey-api-xxxxx:"
+```
+
+### Response
+
+```jsonc
+[
+  {
+    "id": "12345",
+    "created": "2024-05-08T20:19:51.777861756Z",
+    "tailnetId": 59954,
+    "deviceId": 11055,
+    "sharerId": 22011,
+    "allowExitNode": true,
+    "email": "user@example.com",
+    "lastEmailSentAt": "2024-05-08T20:19:51.777861756Z",
+    "inviteUrl": "https://login.tailscale.com/admin/invite/<code>",
+    "accepted": false
+  },
+  {
+    "id": "12346",
+    "created": "2024-04-03T21:38:49.333829261Z",
+    "tailnetId": 59954,
+    "deviceId": 11055,
+    "sharerId": 22012,
+    "inviteUrl": "https://login.tailscale.com/admin/invite/<code>",
+    "accepted": true,
+    "acceptedBy": {
+      "id": 33223,
+      "loginName": "someone@example.com",
+      "profilePicUrl": ""
+    }
+  }
+]
+```
+
+## Create device invites
+
+```http
+POST /api/v2/device/{deviceID}/device-invites
+```
+
+Create new share invites for a device.
+
+### Parameters
+
+#### `deviceID` (required in URL path)
+
+The ID of the device.
+
+#### List of invite requests (required in `POST` body)
+
+Each invite request is an object with the following optional fields:
+
+- **`multiUse`:** (Optional) Specify whether the invite can be accepted more than once. When set to `true`, it results in an invite that can be accepted up to 1,000 times.
+- **`allowExitNode`:** (Optional) Specify whether the invited user can use the device as an exit node when it advertises as one.
+- **`email`:** (Optional) Specify the email to send the created invite. If not set, the endpoint generates and returns an invite URL (but doesn't send it out).
+
+### Request example
+
+```sh
+curl -X POST "https://api.tailscale.com/api/v2/device/11055/device-invites" \
+-u "tskey-api-xxxxx:" \
+-H "Content-Type: application/json" \
+--data-binary '[{"multiUse": true, "allowExitNode": true, "email":"user@example.com"}]'
+```
+
+### Response
+
+```jsonc
+[
+  {
+    "id": "12347",
+    "created": "2024-05-08T20:29:45.842358533Z",
+    "tailnetId": 59954,
+    "deviceId": 11055,
+    "sharerId": 22012,
+    "multiUse": true,
+    "allowExitNode": true,
+    "email": "user@example.com",
+    "lastEmailSentAt": "2024-05-08T20:29:45.842358533Z",
+    "inviteUrl": "https://login.tailscale.com/admin/invite/<code>",
+    "accepted": false
+  }
+]
+```
 
 # Tailnet
 
@@ -785,7 +1057,7 @@ The response will contain a JSON object with the fields:
 
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/acl" \
-  -u "tskey-api-xxxxx:" \
+  -u "tskey-api-xxxxx:"
 ```
 
 ### Response in HuJSON format
@@ -825,8 +1097,8 @@ Etag: "e0b2816b418b3f266309d94426ac7668ab3c1fa87798785bf82f1085cc2f6d9c"
 
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/acl" \
-  -u "tskey-api-xxxxx:" \
-  -H "Accept: application/json" \
+  -u "tskey-api-xxxxx:"
+  -H "Accept: application/json"
 ```
 
 ### Response in JSON format
@@ -867,7 +1139,7 @@ Etag: "e0b2816b418b3f266309d94426ac7668ab3c1fa87798785bf82f1085cc2f6d9c"
 
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/acl?details=1" \
-  -u "tskey-api-xxxxx:" \
+  -u "tskey-api-xxxxx:"
 ```
 
 ### Response (with details)
@@ -939,6 +1211,7 @@ Learn about the [ACL policy properties you can include in the request](https://t
 POST /api/v2/tailnet/example.com/acl
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/acl" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   -H "If-Match: \"e0b2816b418b3f266309d94426ac7668ab3c1fa87798785bf82f1085cc2f6d9c\""
   --data-binary '// Example/default ACLs for unrestricted connections.
 {
@@ -976,18 +1249,18 @@ A successful response returns an HTTP status of '200' and the modified tailnet p
   ],
   // Declare static groups of users beyond those in the identity service.
   "groups": {
-    "group:example": ["user1@example.com", "user2@example.com"],
+    "group:example": ["user1@example.com", "user2@example.com"]
   },
   // Declare convenient hostname aliases to use in place of IP addresses.
   "hosts": {
-    "example-host-1": "100.100.100.100",
+    "example-host-1": "100.100.100.100"
   },
   // Access control lists.
   "acls": [
     // Match absolutely everything. Comment out this section if you want
     // to define specific ACL restrictions.
-    { "action": "accept", "users": ["*"], "ports": ["*:*"] },
-  ],
+    { "action": "accept", "users": ["*"], "ports": ["*:*"] }
+  ]
 }
 ```
 
@@ -1051,6 +1324,7 @@ Learn about [tailnet policy file entries](https://tailscale.com/kb/1018).
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/acl/preview?previewFor=user1@example.com&type=user" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   --data-binary '// Example/default ACLs for unrestricted connections.
 {
   // Declare tests to check functionality of ACL rules. User must be a valid user with registered machines.
@@ -1134,6 +1408,7 @@ Learn more about [tailnet policy file tests](https://tailscale.com/kb/1018/#test
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/acl/validate" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   --data-binary '
   [
     {"src": "user1@example.com", "accept": ["example-host-1:22"], "deny": ["example-host-2:100"]}
@@ -1155,6 +1430,7 @@ The `POST` body should be a JSON object with a JSON or HuJSON representation of 
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/acl/validate" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   --data-binary '
   {
     "acls": [
@@ -1180,9 +1456,9 @@ Look at the response body to determine whether there was a problem within your A
     "data": [
       {
         "user": "user1@example.com",
-        "errors": ["address \"2.2.2.2:22\": want: Drop, got: Accept"],
-      },
-    ],
+        "errors": ["address \"2.2.2.2:22\": want: Drop, got: Accept"]
+      }
+    ]
   }
   ```
 
@@ -1196,10 +1472,10 @@ any groups that are used in the policy file that are not being synced from SCIM.
     {
       "user": "group:unknown@example.com",
       "warnings": [
-        "group is not syncing from SCIM and will be ignored by rules in the policy file",
-      ],
-    },
-  ],
+        "group is not syncing from SCIM and will be ignored by rules in the policy file"
+      ]
+    }
+  ]
 }
 ```
 
@@ -1356,8 +1632,8 @@ Returns a JSON object with the IDs of all active keys.
     { "id": "XXXX14CNTRL" },
     { "id": "XXXXZ3CNTRL" },
     { "id": "XXXX43CNTRL" },
-    { "id": "XXXXgj1CNTRL" },
-  ],
+    { "id": "XXXXgj1CNTRL" }
+  ]
 }
 ```
 
@@ -1415,6 +1691,7 @@ Note the following about required vs. optional values:
 ```jsonc
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/keys" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   --data-binary '
 {
   "capabilities": {
@@ -1451,11 +1728,11 @@ It holds the capabilities specified in the request and can no longer be retrieve
         "reusable": false,
         "ephemeral": false,
         "preauthorized": false,
-        "tags": ["tag:example"],
-      },
-    },
+        "tags": ["tag:example"]
+      }
+    }
   },
-  "description": "dev access",
+  "description": "dev access"
 }
 ```
 
@@ -1501,11 +1778,11 @@ The response is a JSON object with information about the key supplied.
         "reusable": false,
         "ephemeral": true,
         "preauthorized": false,
-        "tags": ["tag:bar", "tag:foo"],
-      },
-    },
+        "tags": ["tag:bar", "tag:foo"]
+      }
+    }
   },
-  "description": "dev access",
+  "description": "dev access"
 }
 ```
 
@@ -1517,7 +1794,7 @@ Response for a revoked (deleted) or expired key will have an `invalid` field set
   "created": "2022-05-05T18:55:44Z",
   "expires": "2022-08-03T18:55:44Z",
   "revoked": "2023-04-01T20:50:00Z",
-  "invalid": true,
+  "invalid": true
 }
 ```
 
@@ -1587,7 +1864,7 @@ curl "https://api.tailscale.com/api/v2/tailnet/example.com/dns/nameservers" \
 
 ```jsonc
 {
-  "dns": ["8.8.8.8"],
+  "dns": ["8.8.8.8"]
 }
 ```
 
@@ -1615,7 +1892,7 @@ The new list of DNS nameservers in JSON.
 
 ```jsonc
 {
-  "dns": ["8.8.8.8"],
+  "dns": ["8.8.8.8"]
 }
 ```
 
@@ -1626,6 +1903,7 @@ Adding DNS nameservers with the MagicDNS on:
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/dns/nameservers" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   --data-binary '{"dns": ["8.8.8.8"]}'
 ```
 
@@ -1636,7 +1914,7 @@ The response is a JSON object containing the new list of nameservers and the sta
 ```jsonc
 {
   "dns": ["8.8.8.8"],
-  "magicDNS": true,
+  "magicDNS": true
 }
 ```
 
@@ -1645,6 +1923,7 @@ The response is a JSON object containing the new list of nameservers and the sta
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/dns/nameservers" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   --data-binary '{"dns": []}'
 ```
 
@@ -1655,7 +1934,7 @@ The response is a JSON object containing the new list of nameservers and the sta
 ```jsonc
 {
   "dns": [],
-  "magicDNS": false,
+  "magicDNS": false
 }
 ```
 
@@ -1686,7 +1965,7 @@ curl "https://api.tailscale.com/api/v2/tailnet/example.com/dns/preferences" \
 
 ```jsonc
 {
-  "magicDNS": false,
+  "magicDNS": false
 }
 ```
 
@@ -1722,7 +2001,7 @@ The DNS preferences in JSON. Currently, MagicDNS is the only setting available:
 
 ```jsonc
 {
-  "magicDNS": true,
+  "magicDNS": true
 }
 ```
 
@@ -1731,6 +2010,7 @@ The DNS preferences in JSON. Currently, MagicDNS is the only setting available:
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/dns/preferences" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   --data-binary '{"magicDNS": true}'
 ```
 
@@ -1740,7 +2020,7 @@ If there are no DNS servers, this returns an error message:
 
 ```jsonc
 {
-  "message": "need at least one nameserver to enable MagicDNS",
+  "message": "need at least one nameserver to enable MagicDNS"
 }
 ```
 
@@ -1748,7 +2028,7 @@ If there are DNS servers, this returns the MagicDNS status:
 
 ```jsonc
 {
-  "magicDNS": true,
+  "magicDNS": true
 }
 ```
 
@@ -1779,7 +2059,7 @@ curl "https://api.tailscale.com/api/v2/tailnet/example.com/dns/searchpaths" \
 
 ```jsonc
 {
-  "searchPaths": ["user1.example.com"],
+  "searchPaths": ["user1.example.com"]
 }
 ```
 
@@ -1805,7 +2085,7 @@ Specify a list of search paths in a JSON object:
 
 ```jsonc
 {
-  "searchPaths": ["user1.example.com", "user2.example.com"],
+  "searchPaths": ["user1.example.com", "user2.example.com"]
 }
 ```
 
@@ -1814,6 +2094,7 @@ Specify a list of search paths in a JSON object:
 ```sh
 curl "https://api.tailscale.com/api/v2/tailnet/example.com/dns/searchpaths" \
   -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
   --data-binary '{"searchPaths": ["user1.example.com", "user2.example.com"]}'
 ```
 
@@ -1823,6 +2104,613 @@ The response is a JSON object containing the new list of search paths.
 
 ```jsonc
 {
-  "searchPaths": ["user1.example.com", "user2.example.com"],
+  "searchPaths": ["user1.example.com", "user2.example.com"]
+}
+```
+
+## Get split DNS
+
+```http
+GET /api/v2/tailnet/{tailnet}/dns/split-dns
+```
+
+Retrieves the split DNS settings, which is a map from domains to lists of nameservers, that is currently set for the given tailnet.
+
+### Parameters
+
+#### `tailnet` (required in URL path)
+
+The tailnet organization name.
+
+### Request example
+
+```sh
+curl "https://api.tailscale.com/api/v2/tailnet/example.com/dns/split-dns" \
+  -u "tskey-api-xxxxx:"
+```
+
+### Response
+
+```jsonc
+{
+  "example.com": ["1.1.1.1", "1.2.3.4"],
+  "other.com": ["2.2.2.2"]
+}
+```
+
+## Update split DNS
+
+```http
+PATCH /api/v2/tailnet/{tailnet}/dns/split-dns
+```
+
+Performs partial updates of the split DNS settings for a given tailnet. Only domains specified in the request map will be modified. Setting the value of a mapping to "null" clears the nameservers for that domain.
+
+### Parameters
+
+#### `tailnet` (required in URL path)
+
+The tailnet organization name.
+
+#### `PATCH` body format
+
+Specify mappings from domain name to a list of nameservers in a JSON object:
+
+```jsonc
+{
+  "example.com": ["1.1.1.1", "1.2.3.4"],
+  "other.com": ["2.2.2.2"]
+}
+```
+
+### Request example: updating split DNS settings for multiple domains
+
+```sh
+curl -X PATCH "https://api.tailscale.com/api/v2/tailnet/example.com/dns/split-dns" \
+  -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"example.com": ["1.1.1.1", "1.2.3.4"], "other.com": ["2.2.2.2"]}'
+```
+
+### Response: updating split DNS settings for multiple domains
+
+The response is a JSON object containing the updated map of split DNS settings.
+
+```jsonc
+{
+  "example.com": ["1.1.1.1", "1.2.3.4"],
+  "other.com": ["2.2.2.2"],
+  <existing unmodified key / value pairs>
+}
+```
+
+### Request example: unsetting nameservers for a domain
+
+```sh
+curl -X PATCH "https://api.tailscale.com/api/v2/tailnet/example.com/dns/split-dns" \
+  -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"example.com": null}'
+```
+
+### Response: unsetting nameservers for a domain
+
+The response is a JSON object containing the updated map of split DNS settings.
+
+```jsonc
+{
+  <existing unmodified key / value pairs without example.com>
+}
+```
+
+## Set split DNS
+
+```http
+PUT /api/v2/tailnet/{tailnet}/dns/split-dns
+```
+
+Replaces the split DNS settings for a given tailnet. Setting the value of a mapping to "null" clears the nameservers for that domain. Sending an empty object clears nameservers for all domains.
+
+### Parameters
+
+#### `tailnet` (required in URL path)
+
+The tailnet organization name.
+
+#### `PUT` body format
+
+Specify mappings from domain name to a list of nameservers in a JSON object:
+
+```jsonc
+{
+  "example.com": ["1.2.3.4"],
+  "other.com": ["2.2.2.2"]
+}
+```
+
+### Request example: setting multiple domains
+
+```sh
+curl -X PUT "https://api.tailscale.com/api/v2/tailnet/example.com/dns/split-dns" \
+  -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"example.com": ["1.2.3.4"], "other.com": ["2.2.2.2"]}'
+```
+
+### Response: unsetting nameservers for a domain
+
+The response is a JSON object containing the updated map of split DNS settings.
+
+```jsonc
+{
+  "example.com": ["1.2.3.4"],
+  "other.com": ["2.2.2.2"]
+}
+```
+
+### Request example: unsetting all domains
+
+```sh
+curl -X PUT "https://api.tailscale.com/api/v2/tailnet/example.com/dns/split-dns" \
+  -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
+  --data-binary '{}'
+```
+
+### Response: unsetting nameservers for a domain
+
+The response is a JSON object containing the updated map of split DNS settings.
+
+```jsonc
+{}
+```
+
+## Tailnet user invites
+
+The tailnet user invite methods let you create and list [invites](https://tailscale.com/kb/1371/invite-users).
+
+## List user invites
+
+```http
+GET /api/v2/tailnet/{tailnet}/user-invites
+```
+
+List all user invites that haven't been accepted.
+
+### Parameters
+
+#### `tailnet` (required in URL path)
+
+The tailnet organization name.
+
+### Request example
+
+```sh
+curl -X GET "https://api.tailscale.com/api/v2/tailnet/example.com/user-invites" \
+-u "tskey-api-xxxxx:"
+```
+
+### Response
+
+```jsonc
+[
+  {
+    "id": "29214",
+    "role": "member",
+    "tailnetId": 12345,
+    "inviterId": 34567,
+    "email": "user@example.com",
+    "lastEmailSentAt": "2024-05-09T16:13:16.084568545Z",
+    "inviteUrl": "https://login.tailscale.com/uinv/<code>"
+  },
+  {
+    "id": "29215",
+    "role": "admin",
+    "tailnetId": 12345,
+    "inviterId": 34567,
+    "inviteUrl": "https://login.tailscale.com/uinv/<code>"
+  }
+]
+```
+
+## Create user invites
+
+```http
+POST /api/v2/tailnet/{tailnet}/user-invites
+```
+
+Create new user invites to join the tailnet.
+
+### Parameters
+
+#### `tailnet` (required in URL path)
+
+The tailnet organization name.
+
+#### List of invite requests (required in `POST` body)
+
+Each invite request is an object with the following optional fields:
+
+- **`role`:** (Optional) Specify a [user role](https://tailscale.com/kb/1138/user-roles) to assign the invited user. Defaults to the `"member"` role. Valid options are:
+  - `"member"`: Assign the Member role.
+  - `"admin"`: Assign the Admin role.
+  - `"it-admin"`: Assign the IT admin role.
+  - `"network-admin"`: Assign the Network admin role.
+  - `"billing-admin"`: Assign the Billing admin role.
+  - `"auditor"`: Assign the Auditor role.
+- **`email`:** (Optional) Specify the email to send the created invite. If not set, the endpoint generates and returns an invite URL (but doesn't send it out).
+
+### Request example
+
+```sh
+curl -X POST "https://api.tailscale.com/api/v2/tailnet/example.com/user-invites" \
+-u "tskey-api-xxxxx:" \
+-H "Content-Type: application/json" \
+--data-binary '[{"role": "admin", "email":"user@example.com"}]'
+```
+
+### Response
+
+```jsonc
+[
+  {
+    "id": "29214",
+    "role": "admin",
+    "tailnetId": 12345,
+    "inviterId": 34567,
+    "email": "user@example.com",
+    "lastEmailSentAt": "2024-05-09T16:23:26.91778771Z",
+    "inviteUrl": "https://login.tailscale.com/uinv/<code>"
+  }
+]
+```
+
+# User invites
+
+A user invite is an active invitation that lets a user join a tailnet with a pre-assigned [user role](https://tailscale.com/kb/1138/user-roles).
+
+Each user invite has a unique ID that is used to identify the invite in API calls.
+You can find all user invite IDs for a particular tailnet by [listing user invites](#list-user-invites).
+
+### Attributes
+
+```jsonc
+{
+  // id (string) is the unique identifier for the invite.
+  // Supply this value wherever {userInviteId} is indicated in the endpoint.
+  "id": "12346",
+
+  // role is the tailnet user role to assign to the invited user upon accepting
+  // the invite. Value options are "member", "admin", "it-admin", "network-admin",
+  // "billing-admin", and "auditor".
+  "role": "admin",
+
+  // tailnetId is the ID of the tailnet to which the user was invited.
+  "tailnetId": 59954,
+
+  // inviterId is the ID of the user who created the invite.
+  "inviterId": 22012,
+
+  // email is the email to which the invite was sent.
+  // If empty, the invite was not emailed to anyone, but the inviteUrl can be
+  // shared manually.
+  "email": "user@example.com",
+
+  // lastEmailSentAt is the last time the invite was attempted to be sent to
+  // Email. Only ever set if `email` is not empty.
+  "lastEmailSentAt": "2024-04-03T21:38:49.333829261Z",
+
+  // inviteUrl is included when `email` is not part of the tailnet's domain,
+  // or when `email` is empty. It is the link to accept the invite.
+  //
+  // When included, anyone with this link can accept the invite.
+  // It is not restricted to the person to which the invite was emailed.
+  //
+  // When `email` is part of the tailnet's domain (has the same @domain.com
+  // suffix as the tailnet), the user can join the tailnet automatically by
+  // logging in with their domain email at https://login.tailscale.com/start.
+  // They'll be assigned the specified `role` upon signing in for the first
+  // time.
+  "inviteUrl": "https://login.tailscale.com/admin/invite/<code>"
+}
+```
+
+## Get user invite
+
+```http
+GET /api/v2/user-invites/{userInviteId}
+```
+
+Retrieve the specified user invite.
+
+### Parameters
+
+#### `userInviteId` (required in URL path)
+
+The ID of the user invite.
+
+### Request example
+
+```sh
+curl "https://api.tailscale.com/api/v2/user-invites/29214" \
+  -u "tskey-api-xxxxx:"
+```
+
+### Response
+
+```jsonc
+{
+  "id": "29214",
+  "role": "admin",
+  "tailnetId": 12345,
+  "inviterId": 34567,
+  "email": "user@example.com",
+  "lastEmailSentAt": "2024-05-09T16:23:26.91778771Z",
+  "inviteUrl": "https://login.tailscale.com/uinv/<code>"
+}
+```
+
+## Delete user invite
+
+```http
+DELETE /api/v2/user-invites/{userInviteId}
+```
+
+Delete the specified user invite.
+
+### Parameters
+
+#### `userInviteId` (required in URL path)
+
+The ID of the user invite.
+
+### Request example
+
+```sh
+curl -X DELETE "https://api.tailscale.com/api/v2/user-invites/29214" \
+  -u "tskey-api-xxxxx:"
+```
+
+### Response
+
+The response is 2xx on success. The response body is an empty JSON object.
+
+## Resend user invite
+
+```http
+POST /api/v2/user-invites/{userInviteId}/resend
+```
+
+Resend the specified user invite by email. You can only use this if the specified invite was originally created with an email specified. Refer to [creating user invites for a tailnet](#create-user-invites).
+
+Note: Invite resends are rate limited to one per minute.
+
+### Parameters
+
+#### `userInviteId` (required in URL path)
+
+The ID of the user invite.
+
+### Request example
+
+```sh
+curl -X POST "https://api.tailscale.com/api/v2/user-invites/29214/resend" \
+  -u "tskey-api-xxxxx:"
+```
+
+### Response
+
+The response is 2xx on success. The response body is an empty JSON object.
+
+# Device invites
+
+A device invite is an invitation that shares a device with an external user (a user not in the device's tailnet).
+
+Each device invite has a unique ID that is used to identify the invite in API calls.
+You can find all device invite IDs for a particular device by [listing all device invites for a device](#list-device-invites).
+
+### Attributes
+
+```jsonc
+{
+  // id (strings) is the unique identifier for the invite.
+  // Supply this value wherever {deviceInviteId} is indicated in the endpoint.
+  "id": "12346",
+
+  // created is the creation time of the invite.
+  "created": "2024-04-03T21:38:49.333829261Z",
+
+  // tailnetId is the ID of the tailnet to which the shared device belongs.
+  "tailnetId": 59954,
+
+  // deviceId is the ID of the device being shared.
+  "deviceId": 11055,
+
+  // sharerId is the ID of the user who created the share invite.
+  "sharerId": 22012,
+
+  // multiUse specifies whether this device invite can be accepted more than
+  // once.
+  "multiUse": false,
+
+  // allowExitNode specifies whether the invited user is able to use the
+  // device as an exit node when the device is advertising as one.
+  "allowExitNode": true,
+
+  // email is the email to which the invite was sent.
+  // If empty, the invite was not emailed to anyone, but the inviteUrl can be
+  // shared manually.
+  "email": "user@example.com",
+
+  // lastEmailSentAt is the last time the invite was attempted to be sent to
+  // Email. Only ever set if Email is not empty.
+  "lastEmailSentAt": "2024-04-03T21:38:49.333829261Z",
+
+  // inviteUrl is the link to accept the invite.
+  // Anyone with this link can accept the invite.
+  // It is not restricted to the person to which the invite was emailed.
+  "inviteUrl": "https://login.tailscale.com/admin/invite/<code>",
+
+  // accepted is true when share invite has been accepted.
+  "accepted": true,
+
+  // acceptedBy is set when the invite has been accepted.
+  // It holds information about the user who accepted the share invite.
+  "acceptedBy": {
+    // id is the ID of the user who accepted the share invite.
+    "id": 33223,
+
+    // loginName is the login name of the user who accepted the share invite.
+    "loginName": "someone@example.com",
+
+    // profilePicUrl is optionally the profile pic URL for the user who accepted
+    // the share invite.
+    "profilePicUrl": ""
+  }
+}
+```
+
+## Get device invite
+
+```http
+GET /api/v2/device-invites/{deviceInviteId}
+```
+
+Retrieve the specified device invite.
+
+### Parameters
+
+#### `deviceInviteId` (required in URL path)
+
+The ID of the device share invite.
+
+### Request example
+
+```sh
+curl "https://api.tailscale.com/api/v2/device-invites/12346" \
+  -u "tskey-api-xxxxx:"
+```
+
+### Response
+
+```jsonc
+{
+  "id": "12346",
+  "created": "2024-04-03T21:38:49.333829261Z",
+  "tailnetId": 59954,
+  "deviceId": 11055,
+  "sharerId": 22012,
+  "multiUse": true,
+  "allowExitNode": true,
+  "email": "user@example.com",
+  "lastEmailSentAt": "2024-04-03T21:38:49.333829261Z",
+  "inviteUrl": "https://login.tailscale.com/admin/invite/<code>",
+  "accepted": false
+}
+```
+
+## Delete device invite
+
+```http
+DELETE /api/v2/device-invites/{deviceInviteId}
+```
+
+Delete the specified device invite.
+
+### Parameters
+
+#### `deviceInviteId` (required in URL path)
+
+The ID of the device share invite.
+
+### Request example
+
+```sh
+curl -X DELETE "https://api.tailscale.com/api/v2/device-invites/12346" \
+  -u "tskey-api-xxxxx:"
+```
+
+### Response
+
+The response is 2xx on success. The response body is an empty JSON object.
+
+## Resend device invite
+
+```http
+POST /api/v2/device-invites/{deviceInviteId}/resend
+```
+
+Resend the specified device invite by email. You can only use this if the specified invite was originally created with an email specified. Refer to [creating device invites for a device](#create-device-invites).
+
+Note: Invite resends are rate limited to one per minute.
+
+### Parameters
+
+#### `deviceInviteId` (required in URL path)
+
+The ID of the device share invite.
+
+### Request example
+
+```sh
+curl -X POST "https://api.tailscale.com/api/v2/device-invites/12346/resend" \
+  -u "tskey-api-xxxxx:"
+```
+
+### Response
+
+The response is 2xx on success. The response body is an empty JSON object.
+
+## Accept device invite
+
+```http
+POST /api/v2/device-invites/-/accept
+```
+
+Resend the specified device invite by email. This can only be used if the specified invite was originally created with an email specified.
+See [creating device invites for a device](#create-device-invites).
+
+Note that invite resends are rate limited to once per minute.
+
+### Parameters
+
+#### `invite` (required in `POST` body)
+
+The URL of the invite (in the form "https://login.tailscale.com/admin/invite/{code}") or the "{code}" component of the URL.
+
+### Request example
+
+```sh
+curl -X POST "https://api.tailscale.com/api/v2/device-invites/-/accept" \
+  -u "tskey-api-xxxxx:" \
+  -H "Content-Type: application/json" \
+  --data-binary '[{"invite": "https://login.tailscale.com/admin/invite/xxxxxx"}]'
+```
+
+### Response
+
+```jsonc
+{
+  "device": {
+    "id": "11055",
+    "os": "iOS",
+    "name": "my-phone",
+    "fqdn": "my-phone.something.ts.net",
+    "ipv4": "100.x.y.z",
+    "ipv6": "fd7a:115c:x::y:z",
+    "includeExitNode": false
+  },
+  "sharer": {
+    "id": "22012",
+    "displayName": "Some User",
+    "loginName": "someuser@example.com",
+    "profilePicURL": ""
+  },
+  "acceptedBy": {
+    "id": "33233",
+    "displayName": "Another User",
+    "loginName": "anotheruser@exmaple2.com",
+    "profilePicURL": ""
+  }
 }
 ```

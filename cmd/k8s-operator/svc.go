@@ -22,8 +22,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	tsoperator "tailscale.com/k8s-operator"
 	tsapi "tailscale.com/k8s-operator/apis/v1alpha1"
+	"tailscale.com/net/dns/resolvconffile"
 	"tailscale.com/util/clientmetric"
 	"tailscale.com/util/set"
+)
+
+const (
+	resolvConfPath       = "/etc/resolv.conf"
+	defaultClusterDomain = "cluster.local"
 )
 
 type ServiceReconciler struct {
@@ -42,6 +48,8 @@ type ServiceReconciler struct {
 	managedEgressProxies set.Slice[types.UID]
 
 	recorder record.EventRecorder
+
+	tsNamespace string
 }
 
 var (
@@ -82,7 +90,7 @@ func (a *ServiceReconciler) Reconcile(ctx context.Context, req reconcile.Request
 	} else if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to get svc: %w", err)
 	}
-	targetIP := a.tailnetTargetAnnotation(svc)
+	targetIP := tailnetTargetAnnotation(svc)
 	targetFQDN := svc.Annotations[AnnotationTailnetTargetFQDN]
 	if !svc.DeletionTimestamp.IsZero() || !a.shouldExpose(svc) && targetIP == "" && targetFQDN == "" {
 		logger.Debugf("service is being deleted or is (no longer) referring to Tailscale ingress/egress, ensuring any created resources are cleaned up")
@@ -200,11 +208,15 @@ func (a *ServiceReconciler) maybeProvision(ctx context.Context, logger *zap.Suga
 	}
 
 	a.mu.Lock()
-	if a.shouldExpose(svc) {
+	if a.shouldExposeClusterIP(svc) {
 		sts.ClusterTargetIP = svc.Spec.ClusterIP
 		a.managedIngressProxies.Add(svc.UID)
 		gaugeIngressProxies.Set(int64(a.managedIngressProxies.Len()))
-	} else if ip := a.tailnetTargetAnnotation(svc); ip != "" {
+	} else if a.shouldExposeDNSName(svc) {
+		sts.ClusterTargetDNSName = svc.Spec.ExternalName
+		a.managedIngressProxies.Add(svc.UID)
+		gaugeIngressProxies.Set(int64(a.managedIngressProxies.Len()))
+	} else if ip := tailnetTargetAnnotation(svc); ip != "" {
 		sts.TailnetTargetIP = ip
 		a.managedEgressProxies.Add(svc.UID)
 		gaugeEgressProxies.Set(int64(a.managedEgressProxies.Len()))
@@ -225,10 +237,8 @@ func (a *ServiceReconciler) maybeProvision(ctx context.Context, logger *zap.Suga
 	}
 
 	if sts.TailnetTargetIP != "" || sts.TailnetTargetFQDN != "" {
-		// TODO (irbekrm): cluster.local is the default DNS name, but
-		// can be changed by users. Make this configurable or figure out
-		// how to discover the DNS name from within operator
-		headlessSvcName := hsvc.Name + "." + hsvc.Namespace + ".svc.cluster.local"
+		clusterDomain := retrieveClusterDomain(a.tsNamespace, logger)
+		headlessSvcName := hsvc.Name + "." + hsvc.Namespace + ".svc." + clusterDomain
 		if svc.Spec.ExternalName != headlessSvcName || svc.Spec.Type != corev1.ServiceTypeExternalName {
 			svc.Spec.ExternalName = headlessSvcName
 			svc.Spec.Selector = nil
@@ -240,7 +250,7 @@ func (a *ServiceReconciler) maybeProvision(ctx context.Context, logger *zap.Suga
 		return nil
 	}
 
-	if !a.hasLoadBalancerClass(svc) {
+	if !isTailscaleLoadBalancerService(svc, a.isDefaultLoadBalancer) {
 		logger.Debugf("service is not a LoadBalancer, so not updating ingress")
 		return nil
 	}
@@ -297,25 +307,30 @@ func validateService(svc *corev1.Service) []string {
 }
 
 func (a *ServiceReconciler) shouldExpose(svc *corev1.Service) bool {
-	// Headless services can't be exposed, since there is no ClusterIP to
-	// forward to.
+	return a.shouldExposeClusterIP(svc) || a.shouldExposeDNSName(svc)
+}
+
+func (a *ServiceReconciler) shouldExposeDNSName(svc *corev1.Service) bool {
+	return hasExposeAnnotation(svc) && svc.Spec.Type == corev1.ServiceTypeExternalName && svc.Spec.ExternalName != ""
+}
+
+func (a *ServiceReconciler) shouldExposeClusterIP(svc *corev1.Service) bool {
 	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == "None" {
 		return false
 	}
-
-	return a.hasLoadBalancerClass(svc) || a.hasExposeAnnotation(svc)
+	return isTailscaleLoadBalancerService(svc, a.isDefaultLoadBalancer) || hasExposeAnnotation(svc)
 }
 
-func (a *ServiceReconciler) hasLoadBalancerClass(svc *corev1.Service) bool {
+func isTailscaleLoadBalancerService(svc *corev1.Service, isDefaultLoadBalancer bool) bool {
 	return svc != nil &&
 		svc.Spec.Type == corev1.ServiceTypeLoadBalancer &&
 		(svc.Spec.LoadBalancerClass != nil && *svc.Spec.LoadBalancerClass == "tailscale" ||
-			svc.Spec.LoadBalancerClass == nil && a.isDefaultLoadBalancer)
+			svc.Spec.LoadBalancerClass == nil && isDefaultLoadBalancer)
 }
 
 // hasExposeAnnotation reports whether Service has the tailscale.com/expose
 // annotation set
-func (a *ServiceReconciler) hasExposeAnnotation(svc *corev1.Service) bool {
+func hasExposeAnnotation(svc *corev1.Service) bool {
 	return svc != nil && svc.Annotations[AnnotationExpose] == "true"
 }
 
@@ -323,7 +338,7 @@ func (a *ServiceReconciler) hasExposeAnnotation(svc *corev1.Service) bool {
 // annotation or of the deprecated tailscale.com/ts-tailnet-target-ip
 // annotation. If neither is set, it returns an empty string. If both are set,
 // it returns the value of the new annotation.
-func (a *ServiceReconciler) tailnetTargetAnnotation(svc *corev1.Service) string {
+func tailnetTargetAnnotation(svc *corev1.Service) string {
 	if svc == nil {
 		return ""
 	}
@@ -343,4 +358,52 @@ func proxyClassIsReady(ctx context.Context, name string, cl client.Client) (bool
 		return false, fmt.Errorf("error getting ProxyClass %s: %w", name, err)
 	}
 	return tsoperator.ProxyClassIsReady(proxyClass), nil
+}
+
+// retrieveClusterDomain determines and retrieves cluster domain i.e
+// (cluster.local) in which this Pod is running by parsing search domains in
+// /etc/resolv.conf. If an error is encountered at any point during the process,
+// defaults cluster domain to 'cluster.local'.
+func retrieveClusterDomain(namespace string, logger *zap.SugaredLogger) string {
+	logger.Infof("attempting to retrieve cluster domain..")
+	conf, err := resolvconffile.ParseFile(resolvConfPath)
+	if err != nil {
+		// Vast majority of clusters use the cluster.local domain, so it
+		// is probably better to fall back to that than error out.
+		logger.Infof("[unexpected] error parsing /etc/resolv.conf to determine cluster domain, defaulting to 'cluster.local'.")
+		return defaultClusterDomain
+	}
+	return clusterDomainFromResolverConf(conf, namespace, logger)
+}
+
+// clusterDomainFromResolverConf attempts to retrieve cluster domain from the provided resolver config.
+// It expects the first three search domains in the resolver config to be be ['<namespace>.svc.<cluster-domain>, svc.<cluster-domain>, <cluster-domain>, ...]
+// If the first three domains match the expected structure, it returns the third.
+// If the domains don't match the expected structure or an error is encountered, it defaults to 'cluster.local' domain.
+func clusterDomainFromResolverConf(conf *resolvconffile.Config, namespace string, logger *zap.SugaredLogger) string {
+	if len(conf.SearchDomains) < 3 {
+		logger.Infof("[unexpected] resolver config contains only %d search domains, at least three expected.\nDefaulting cluster domain to 'cluster.local'.")
+		return defaultClusterDomain
+	}
+	first := conf.SearchDomains[0]
+	if !strings.HasPrefix(string(first), namespace+".svc") {
+		logger.Infof("[unexpected] first search domain in resolver config is %s; expected %s.\nDefaulting cluster domain to 'cluster.local'.", first, namespace+".svc.<cluster-domain>")
+		return defaultClusterDomain
+	}
+	second := conf.SearchDomains[1]
+	if !strings.HasPrefix(string(second), "svc") {
+		logger.Infof("[unexpected] second search domain in resolver config is %s; expected 'svc.<cluster-domain>'.\nDefaulting cluster domain to 'cluster.local'.", second)
+		return defaultClusterDomain
+	}
+	// Trim the trailing dot for backwards compatibility purposes as the
+	// cluster domain was previously hardcoded to 'cluster.local' without a
+	// trailing dot.
+	probablyClusterDomain := strings.TrimPrefix(second.WithoutTrailingDot(), "svc.")
+	third := conf.SearchDomains[2]
+	if !strings.EqualFold(third.WithoutTrailingDot(), probablyClusterDomain) {
+		logger.Infof("[unexpected] expected resolver config to contain serch domains <namespace>.svc.<cluster-domain>, svc.<cluster-domain>, <cluster-domain>; got %s %s %s\n. Defaulting cluster domain to 'cluster.local'.", first, second, third)
+		return defaultClusterDomain
+	}
+	logger.Infof("Cluster domain %q extracted from resolver config", probablyClusterDomain)
+	return probablyClusterDomain
 }

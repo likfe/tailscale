@@ -36,7 +36,6 @@ import (
 	"tailscale.com/clientupdate"
 	"tailscale.com/drive"
 	"tailscale.com/envknob"
-	"tailscale.com/health"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnauth"
@@ -122,6 +121,7 @@ var handler = map[string]localAPIHandler{
 	"set-use-exit-node-enabled":   (*Handler).serveSetUseExitNodeEnabled,
 	"start":                       (*Handler).serveStart,
 	"status":                      (*Handler).serveStatus,
+	"suggest-exit-node":           (*Handler).serveSuggestExitNode,
 	"tka/affected-sigs":           (*Handler).serveTKAAffectedSigs,
 	"tka/cosign-recovery-aum":     (*Handler).serveTKACosignRecoveryAUM,
 	"tka/disable":                 (*Handler).serveTKADisable,
@@ -155,8 +155,8 @@ var (
 
 // NewHandler creates a new LocalAPI HTTP handler. All parameters except netMon
 // are required (if non-nil it's used to do faster interface lookups).
-func NewHandler(b *ipnlocal.LocalBackend, logf logger.Logf, netMon *netmon.Monitor, logID logid.PublicID) *Handler {
-	return &Handler{b: b, logf: logf, netMon: netMon, backendLogID: logID, clock: tstime.StdClock{}}
+func NewHandler(b *ipnlocal.LocalBackend, logf logger.Logf, logID logid.PublicID) *Handler {
+	return &Handler{b: b, logf: logf, backendLogID: logID, clock: tstime.StdClock{}}
 }
 
 type Handler struct {
@@ -187,7 +187,6 @@ type Handler struct {
 
 	b            *ipnlocal.LocalBackend
 	logf         logger.Logf
-	netMon       *netmon.Monitor // optional; nil means interfaces will be looked up on-demand
 	backendLogID logid.PublicID
 	clock        tstime.Clock
 }
@@ -357,7 +356,7 @@ func (h *Handler) serveBugReport(w http.ResponseWriter, r *http.Request) {
 	}
 	hi, _ := json.Marshal(hostinfo.New())
 	h.logf("user bugreport hostinfo: %s", hi)
-	if err := health.OverallError(); err != nil {
+	if err := h.b.HealthTracker().OverallError(); err != nil {
 		h.logf("user bugreport health: %s", err.Error())
 	} else {
 		h.logf("user bugreport health: ok")
@@ -379,7 +378,7 @@ func (h *Handler) serveBugReport(w http.ResponseWriter, r *http.Request) {
 	envknob.LogCurrent(logger.WithPrefix(h.logf, "user bugreport: "))
 
 	// OS-specific details
-	osdiag.LogSupportInfo(logger.WithPrefix(h.logf, "user bugreport OS: "), osdiag.LogSupportInfoReasonBugReport)
+	h.logf.JSON(1, "UserBugReportOS", osdiag.SupportInfo(osdiag.LogSupportInfoReasonBugReport))
 
 	if defBool(r.URL.Query().Get("diagnose"), false) {
 		h.b.Doctor(r.Context(), logger.WithPrefix(h.logf, "diag: "))
@@ -747,7 +746,7 @@ func (h *Handler) serveDebugPortmap(w http.ResponseWriter, r *http.Request) {
 	done := make(chan bool, 1)
 
 	var c *portmapper.Client
-	c = portmapper.NewClient(logger.WithPrefix(logf, "portmapper: "), h.netMon, debugKnobs, h.b.ControlKnobs(), func() {
+	c = portmapper.NewClient(logger.WithPrefix(logf, "portmapper: "), h.b.NetMon(), debugKnobs, h.b.ControlKnobs(), func() {
 		logf("portmapping changed.")
 		logf("have mapping: %v", c.HaveMapping())
 
@@ -902,7 +901,7 @@ func (h *Handler) serveDebugDialTypes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wg.Wait()
-	for i := 0; i < len(dialers); i++ {
+	for range len(dialers) {
 		res := <-results
 		fmt.Fprintf(w, "[%s] connected=%v err=%v\n", res.name, res.conn != nil, res.err)
 		if res.conn != nil {
@@ -1305,7 +1304,7 @@ func (h *Handler) serveLoginInteractive(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "want POST", http.StatusBadRequest)
 		return
 	}
-	h.b.StartLoginInteractive()
+	h.b.StartLoginInteractive(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return
 }
@@ -1365,6 +1364,12 @@ func (h *Handler) servePrefs(w http.ResponseWriter, r *http.Request) {
 		mp := new(ipn.MaskedPrefs)
 		if err := json.NewDecoder(r.Body).Decode(mp); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := h.b.MaybeClearAppConnector(mp); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(resJSON{Error: err.Error()})
 			return
 		}
 		var err error
@@ -2872,3 +2877,18 @@ var (
 	// User-visible LocalAPI endpoints.
 	metricFilePutCalls = clientmetric.NewCounter("localapi_file_put")
 )
+
+// serveSuggestExitNode serves a POST endpoint for returning a suggested exit node.
+func (h *Handler) serveSuggestExitNode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "only GET allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	res, err := h.b.SuggestExitNode()
+	if err != nil {
+		writeErrorJSON(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}

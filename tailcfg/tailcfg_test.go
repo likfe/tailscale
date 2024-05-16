@@ -23,7 +23,7 @@ import (
 )
 
 func fieldsOf(t reflect.Type) (fields []string) {
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		fields = append(fields, t.Field(i).Name)
 	}
 	return
@@ -363,7 +363,7 @@ func TestNodeEqual(t *testing.T) {
 		"UnsignedPeerAPIOnly",
 		"ComputedName", "computedHostIfDifferent", "ComputedNameWithHost",
 		"DataPlaneAuditLogID", "Expired", "SelfNodeV4MasqAddrForThisPeer",
-		"SelfNodeV6MasqAddrForThisPeer", "IsWireGuardOnly", "ExitNodeDNSResolvers",
+		"SelfNodeV6MasqAddrForThisPeer", "IsWireGuardOnly", "IsJailed", "ExitNodeDNSResolvers",
 	}
 	if have := fieldsOf(reflect.TypeFor[Node]()); !reflect.DeepEqual(have, nodeHandles) {
 		t.Errorf("Node.Equal check might be out of sync\nfields: %q\nhandled: %q\n",
@@ -605,6 +605,16 @@ func TestNodeEqual(t *testing.T) {
 					"foo": []RawMessage{`"bar"`},
 				},
 			},
+			false,
+		},
+		{
+			&Node{IsJailed: true},
+			&Node{IsJailed: true},
+			true,
+		},
+		{
+			&Node{IsJailed: false},
+			&Node{IsJailed: true},
 			false,
 		},
 	}

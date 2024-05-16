@@ -26,7 +26,7 @@ import (
 
 var netlockCmd = &ffcli.Command{
 	Name:       "lock",
-	ShortUsage: "tailscale lock <sub-command> <arguments>",
+	ShortUsage: "tailscale lock <subcommand> [arguments...]",
 	ShortHelp:  "Manage tailnet lock",
 	LongHelp:   "Manage tailnet lock",
 	Subcommands: []*ffcli.Command{
@@ -48,6 +48,9 @@ func runNetworkLockNoSubcommand(ctx context.Context, args []string) error {
 	// Detect & handle the deprecated command 'lock tskey-wrap'.
 	if len(args) >= 2 && args[0] == "tskey-wrap" {
 		return runTskeyWrapCmd(ctx, args[1:])
+	}
+	if len(args) > 0 {
+		return fmt.Errorf("tailscale lock: unknown subcommand: %s", args[0])
 	}
 
 	return runNetworkLockStatus(ctx, args)
@@ -148,7 +151,7 @@ func runNetworkLockInit(ctx context.Context, args []string) error {
 	}
 
 	fmt.Printf("%d disablement secrets have been generated and are printed below. Take note of them now, they WILL NOT be shown again.\n", nlInitArgs.numDisablements)
-	for i := 0; i < nlInitArgs.numDisablements; i++ {
+	for range nlInitArgs.numDisablements {
 		var secret [32]byte
 		if _, err := rand.Read(secret[:]); err != nil {
 			return err
@@ -195,6 +198,10 @@ var nlStatusCmd = &ffcli.Command{
 }
 
 func runNetworkLockStatus(ctx context.Context, args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("tailscale lock status: unexpected argument")
+	}
+
 	st, err := localClient.NetworkLockStatus(ctx)
 	if err != nil {
 		return fixTailscaledConnectError(err)
@@ -454,7 +461,7 @@ func runNetworkLockSign(ctx context.Context, args []string) error {
 	)
 
 	if len(args) == 0 || len(args) > 2 {
-		return errors.New("usage: lock sign <node-key> [<rotation-key>]")
+		return errors.New("usage: tailscale lock sign <node-key> [<rotation-key>]")
 	}
 	if err := nodeKey.UnmarshalText([]byte(args[0])); err != nil {
 		return fmt.Errorf("decoding node-key: %w", err)
@@ -501,7 +508,7 @@ func runNetworkLockDisable(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(secrets) != 1 {
-		return errors.New("usage: lock disable <disablement-secret>")
+		return errors.New("usage: tailscale lock disable <disablement-secret>")
 	}
 	return localClient.NetworkLockDisable(ctx, secrets[0])
 }
@@ -538,7 +545,7 @@ var nlDisablementKDFCmd = &ffcli.Command{
 
 func runNetworkLockDisablementKDF(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: lock disablement-kdf <hex-encoded-disablement-secret>")
+		return errors.New("usage: tailscale lock disablement-kdf <hex-encoded-disablement-secret>")
 	}
 	secret, err := hex.DecodeString(args[0])
 	if err != nil {

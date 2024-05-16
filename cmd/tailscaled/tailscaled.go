@@ -35,6 +35,7 @@ import (
 	"tailscale.com/control/controlclient"
 	"tailscale.com/drive/driveimpl"
 	"tailscale.com/envknob"
+	"tailscale.com/ipn"
 	"tailscale.com/ipn/conffile"
 	"tailscale.com/ipn/ipnlocal"
 	"tailscale.com/ipn/ipnserver"
@@ -358,7 +359,7 @@ func run() (err error) {
 		sys.Set(netMon)
 	}
 
-	pol := logpolicy.New(logtail.CollectionNode, netMon, nil /* use log.Printf */)
+	pol := logpolicy.New(logtail.CollectionNode, netMon, sys.HealthTracker(), nil /* use log.Printf */)
 	pol.SetVerbosityLevel(args.verbose)
 	logPol = pol
 	defer func() {
@@ -393,8 +394,8 @@ func run() (err error) {
 	// Always clean up, even if we're going to run the server. This covers cases
 	// such as when a system was rebooted without shutting down, or tailscaled
 	// crashed, and would for example restore system DNS configuration.
-	dns.CleanUp(logf, args.tunname)
-	router.CleanUp(logf, args.tunname)
+	dns.CleanUp(logf, netMon, args.tunname)
+	router.CleanUp(logf, netMon, args.tunname)
 	// If the cleanUp flag was passed, then exit.
 	if args.cleanUp {
 		return nil
@@ -480,6 +481,15 @@ func startIPNServer(ctx context.Context, logf logger.Logf, logID logid.PublicID,
 		lb, err := getLocalBackend(ctx, logf, logID, sys)
 		if err == nil {
 			logf("got LocalBackend in %v", time.Since(t0).Round(time.Millisecond))
+			if lb.Prefs().Valid() {
+				if err := lb.Start(ipn.Options{}); err != nil {
+					logf("LocalBackend.Start: %v", err)
+					lb.Shutdown()
+					lbErr.Store(err)
+					cancel()
+					return
+				}
+			}
 			srv.SetLocalBackend(lb)
 			close(wgEngineCreated)
 			return
@@ -651,6 +661,7 @@ func tryEngine(logf logger.Logf, sys *tsd.System, name string) (onlyNetstack boo
 	conf := wgengine.Config{
 		ListenPort:    args.port,
 		NetMon:        sys.NetMon.Get(),
+		HealthTracker: sys.HealthTracker(),
 		Dialer:        sys.Dialer.Get(),
 		SetSubsystem:  sys.Set,
 		ControlKnobs:  sys.ControlKnobs(),
@@ -676,7 +687,7 @@ func tryEngine(logf logger.Logf, sys *tsd.System, name string) (onlyNetstack boo
 			// configuration being unavailable (from the noop
 			// manager). More in Issue 4017.
 			// TODO(bradfitz): add a Synology-specific DNS manager.
-			conf.DNS, err = dns.NewOSConfigurator(logf, "") // empty interface name
+			conf.DNS, err = dns.NewOSConfigurator(logf, sys.HealthTracker(), "") // empty interface name
 			if err != nil {
 				return false, fmt.Errorf("dns.NewOSConfigurator: %w", err)
 			}
@@ -698,13 +709,13 @@ func tryEngine(logf logger.Logf, sys *tsd.System, name string) (onlyNetstack boo
 			return false, err
 		}
 
-		r, err := router.New(logf, dev, sys.NetMon.Get())
+		r, err := router.New(logf, dev, sys.NetMon.Get(), sys.HealthTracker())
 		if err != nil {
 			dev.Close()
 			return false, fmt.Errorf("creating router: %w", err)
 		}
 
-		d, err := dns.NewOSConfigurator(logf, devName)
+		d, err := dns.NewOSConfigurator(logf, sys.HealthTracker(), devName)
 		if err != nil {
 			dev.Close()
 			r.Close()

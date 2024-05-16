@@ -18,11 +18,12 @@ import (
 	"testing"
 	"time"
 
-	"tailscale.com/net/interfaces"
+	"tailscale.com/net/netmon"
 	"tailscale.com/net/stun"
 	"tailscale.com/net/stun/stuntest"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tstest"
+	"tailscale.com/tstest/nettest"
 )
 
 func TestHairpinSTUN(t *testing.T) {
@@ -154,13 +155,19 @@ func TestHairpinWait(t *testing.T) {
 	})
 }
 
+func newTestClient(t testing.TB) *Client {
+	c := &Client{
+		NetMon: netmon.NewStatic(),
+		Logf:   t.Logf,
+	}
+	return c
+}
+
 func TestBasic(t *testing.T) {
 	stunAddr, cleanup := stuntest.Serve(t)
 	defer cleanup()
 
-	c := &Client{
-		Logf: t.Logf,
-	}
+	c := newTestClient(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -202,9 +209,8 @@ func TestWorksWhenUDPBlocked(t *testing.T) {
 	dm := stuntest.DERPMapOf(stunAddr)
 	dm.Regions[1].Nodes[0].STUNOnly = true
 
-	c := &Client{
-		Logf: t.Logf,
-	}
+	c := newTestClient(t)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 
@@ -667,7 +673,7 @@ func TestMakeProbePlan(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ifState := &interfaces.State{
+			ifState := &netmon.State{
 				HaveV6: tt.have6if,
 				HaveV4: !tt.no4,
 			}
@@ -877,6 +883,8 @@ func TestSortRegions(t *testing.T) {
 }
 
 func TestNoCaptivePortalWhenUDP(t *testing.T) {
+	nettest.SkipIfNoNetwork(t) // empirically. not sure why.
+
 	// Override noRedirectClient to handle the /generate_204 endpoint
 	var generate204Called atomic.Bool
 	tr := RoundTripFunc(func(req *http.Request) *http.Response {
@@ -895,14 +903,11 @@ func TestNoCaptivePortalWhenUDP(t *testing.T) {
 	stunAddr, cleanup := stuntest.Serve(t)
 	defer cleanup()
 
-	c := &Client{
-		Logf:              t.Logf,
-		testEnoughRegions: 1,
-
-		// Set the delay long enough that we have time to cancel it
-		// when our STUN probe succeeds.
-		testCaptivePortalDelay: 10 * time.Second,
-	}
+	c := newTestClient(t)
+	c.testEnoughRegions = 1
+	// Set the delay long enough that we have time to cancel it
+	// when our STUN probe succeeds.
+	c.testCaptivePortalDelay = 10 * time.Second
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -932,6 +937,7 @@ func (f RoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestNodeAddrResolve(t *testing.T) {
+	nettest.SkipIfNoNetwork(t)
 	c := &Client{
 		Logf:        t.Logf,
 		UseDNSCache: true,
